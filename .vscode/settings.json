@@ -1,0 +1,14 @@
+{
+    "files.associations": {
+        "shm.h": "c",
+        "utils.h": "c",
+        "typeinfo": "c",
+        "utils_slave.h": "c",
+        "semaphore.h": "c",
+        "utils_configurator.h": "c",
+        "time.h": "c",
+        "types.h": "c",
+        "utils_master.h": "c"
+    },
+    "C_Cpp.errorSquiggles": "enabled"
+}
