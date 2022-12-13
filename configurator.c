@@ -314,7 +314,7 @@ int exec_instr(instruction_t instr, char *param)
 
 		memset(buff, 0, M_INSTR_LEN);
 		read(c_pipe[READ_END], buff, M_INSTR_LEN);
-		printf("%s", buff);
+		printf("%s\n", buff);
 		break;
 
 	case CONNECT_SLAVE:
@@ -333,7 +333,7 @@ int exec_instr(instruction_t instr, char *param)
 
 			memset(buff, 0, M_INSTR_LEN);
 			read(c_pipe[READ_END], buff, M_INSTR_LEN);
-			printf("%s", buff);
+			printf("%s\n", buff);
 		}
 		break;
 
@@ -345,7 +345,7 @@ int exec_instr(instruction_t instr, char *param)
 		// wait for a response from master
 		memset(buff, 0, M_INSTR_LEN);
 		read(c_pipe[READ_END], buff, M_INSTR_LEN);
-		printf("%s", buff);
+		printf("%s\n", buff);
 		break;
 
 	case ALL_PARAM_SLAVE:

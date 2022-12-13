@@ -1,22 +1,5 @@
 #include "utils_master.h"
 
-/// @brief search_name() function establishes if the string given as argument is the name of one of the slaves or not
-/// @param name a value of type (char *) to be compared to each slave's name
-/// @return return -1 if the name isn't found or the index of the slave with said name
-int search_name(char *name)
-{
-	int found, i;
-
-	found = -1;
-	for (i = 0 ; i < curr_slaves; i++)
-		if (strcmp(name, slaves[i].name) == 0)
-		{
-			found = i;
-			break;
-		}
-	return found;
-}
-
 void sig_handler(int signum)
 {
 	switch (signum)
@@ -34,11 +17,137 @@ void sig_handler(int signum)
 	}
 }
 
-void connect_to_slave(pid_t pid)
+/// @brief search_name() establishes if argument is the name of one of the slaves or not
+/// @param name a value of type (char *) to be compared to each slave's name
+/// @return return -1 if the name isn't found or the index of the slave with said name
+int search_name(char *name)
 {
-	int shmid, i;
-	key_t shm_key;
+	int found, i;
+
+	found = -1;
+	for (i = 0 ; i < curr_slaves; i++)
+		if (strcmp(name, slaves[i].name) == 0)
+		{
+			found = i;
+			break;
+		}
+	return found;
+}
+
+/// @brief print_parameters() appends the list of all parameters of a given slave
+/// to the first argument of the function
+/// @param buff (Output) pointer to a string where information regarding the status of the command will be outputed
+/// @param index (Input) index of the slave
+void print_parameters(char* buff, int index)
+{
+	int i;
+	char spare_buff[M_INSTR_LEN];
+
+	if (slaves[index].p_set.nr == 0)
+	{
+		strcat(buff, "M: There are no parameters available for this slave.");
+	}
+	else
+	{
+		memset(spare_buff, 0, M_INSTR_LEN);
+		sprintf(spare_buff, "M: Available parameters for %s are: ", slaves[index].name);
+		strcat(buff, spare_buff);
+		for (i = 0; i < slaves[index].p_set.nr; i++)
+		{
+			memset(spare_buff, 0, M_INSTR_LEN);
+			if (i == slaves[index].p_set.nr - 1)
+				sprintf(spare_buff, "%s", slaves[index].p_set.params[i].name);
+			else
+				sprintf(spare_buff, "%s, ", slaves[index].p_set.params[i].name);
+			strcat(buff, spare_buff);
+		}
+	}
+}
+
+/// @brief change_name() sends a command to change its name to a specified value
+/// @param buff (Output) pointer to a string where information regarding the status of the command will be outputed
+/// @param new_name (Input) a pointer to the new name of the slave. 
+/// If new_name is NULL, then the name sent to the slave will be the female varinat of its original name
+/// @param index (Input) index of the slave
+void change_name(char *buff, char *new_name, int index)
+{
+	command_t new_cmd;
+	siginfo_t info;
+
+	// Tell the newly connected slave to change his name
+	new_cmd.id = CHANGE_NAME;
+
+	// Get the female variant of the name
+	if (new_name == NULL)
+	{
+		if (strcmp(slaves[index].name, "Kyle") == 0)
+		{
+			memset(new_cmd.args[0], 0, M_ARG_CMD);
+			strcpy(new_cmd.args[0], "Kyla");
+		}
+		else if (strcmp(slaves[index].name, "Dan") == 0)
+		{
+			memset(new_cmd.args[0], 0, M_ARG_CMD);
+			strcpy(new_cmd.args[0], "Dana");
+		}
+		else if (strcmp(slaves[index].name, "Andrew") == 0)
+		{
+			memset(new_cmd.args[0], 0, M_ARG_CMD);
+			strcpy(new_cmd.args[0], "Andrea");
+		}
+		else if (strcmp(slaves[index].name, "Brian") == 0)
+		{
+			memset(new_cmd.args[0], 0, M_ARG_CMD);
+			strcpy(new_cmd.args[0], "Brianna");
+		}
+		else if (strcmp(slaves[index].name, "Felix") == 0)
+		{
+			memset(new_cmd.args[0], 0, M_ARG_CMD);
+			strcpy(new_cmd.args[0], "Felicia");
+		}
+	}
+	else
+	{
+		memset(new_cmd.args[0], 0, M_ARG_CMD);
+		strcpy(new_cmd.args[0], new_name);
+	}
+	
+	// Update name in personal storage
+	memset(slaves[index].name, 0, M_ARG_CMD);
+	strcpy(slaves[index].name, new_cmd.args[0]);
+
+	// Send the cmd to the slave
+	memcpy(slaves[index].shm_addr, &new_cmd, sizeof(new_cmd));
+	kill(slaves[index].pid, SIGUSR1);
+	
+	sprintf(buff, "M: Asked newly connected slave to change name.\n");
+
+	// Wait for response from slave.
+	if(sigtimedwait(&command_set, &info, &timeout_connection) == -1)
+	{
+		// TODO: do action 
+		strcat(buff, "M: Name change failed. Slave didn't responde in designated time frame.\n");
+	}
+	else
+	{
+		recv_data = 0;
+		strcat(buff, "M: Name change sucessfull.\n");
+		// TODO: check received message from slave. if ack or not
+	}
+	// while (recv_data != 1);
+}
+
+/// @brief connect_to_slave() connects to the slave with the pid specified in the second argument and outputs the status of 
+/// the connection into the first argument
+/// @param buff (Output) pointer to a string where information regarding the status of the command will be outputed
+/// @param pid (Input) procces id of the slave to which the connection is going to be made
+void connect_to_slave(char *buff, pid_t pid)
+{
+	int shmid, i, found;
+	char spare_buff[50];
 	command_t c;
+	key_t shm_key;
+	siginfo_t info;
 
 	// Create key used for shared memory
 	shm_key = ftok("key_shared_memory", pid);
@@ -85,22 +194,48 @@ void connect_to_slave(pid_t pid)
 	kill(pid, SIGUSR2);
 
 	// Wait for response from slave.
-	while(!connected);	// TODO: Should add a timeout limit -> sigtimedwait() ?
+	if(sigtimedwait(&connect_set, &info, &timeout_connection) == -1)
+	{
+		sprintf(buff, "Connection to slave %d timed out. (Time-out: 5 seconds).", pid);
+		// TODO: and erase slave from memory
+	}
+	else
+	{
+		// Reset connexion state
+		connected = 0;
 
-	// Reset connexion state
-	connected = 0;
+		// Load name into structure	
+		memcpy(slaves[curr_slaves].name, slaves[curr_slaves].shm_addr, M_NAME_LEN);
 
-	// Load name into structure	
-	memcpy(slaves[curr_slaves].name, 
-			slaves[curr_slaves].shm_addr,
-			M_NAME_LEN);
+		// Load all the parameters the slave has into structure
+		memcpy(&(slaves[curr_slaves].p_set), slaves[curr_slaves].shm_addr + M_NAME_LEN, sizeof(param_set_t));
 
-	// Load all the parameters the slave has into structure
-	memcpy(&(slaves[curr_slaves].p_set),
-			slaves[curr_slaves].shm_addr + M_NAME_LEN,
-			sizeof(param_set_t));
+		curr_slaves++;
 
-	curr_slaves++;
+		// Check for duplicate name
+		if (curr_slaves >= 2)
+		{
+			found = -1;
+			for (i = 0 ; i < curr_slaves - 1; i++)
+				if (strcmp(slaves[curr_slaves - 1].name, slaves[i].name) == 0)
+				{
+					found = i;
+					break;
+				}
+
+			if (found != -1)
+			{
+				change_name(buff, NULL, curr_slaves - 1);
+			}
+		}
+
+		memset(spare_buff, 0, 50);
+		sprintf(spare_buff, "M: Connection to slave %s established.\n", slaves[curr_slaves - 1].name);
+
+		// Present all parameters to the master
+		strcat(buff, spare_buff);
+		print_parameters(buff, curr_slaves - 1);
+	}
 }
 
 void disconnect_slave(int idx)
@@ -190,8 +325,7 @@ int exec_instr(char *instr)
 {
 	int i, instr_id, found;
 	char buff[M_INSTR_LEN];
-	char *aux, spare[50];;
-	command_t to_send;
+	char *aux;
 	pid_t p;
 
 	// Obtain command id from message
@@ -203,7 +337,7 @@ int exec_instr(char *instr)
 	case LIST_CONN_SLAVES:
 		if (curr_slaves == 0)
 		{
-			write(STDOUT_FILENO, "M: No slaves connected.\n", M_INSTR_LEN);
+			write(STDOUT_FILENO, "M: No slaves connected.", M_INSTR_LEN);
 		}
 		else
 		{
@@ -212,7 +346,7 @@ int exec_instr(char *instr)
 			for (i = 0; i < curr_slaves; i++)
 			{
 				if (i == curr_slaves - 1)
-					sprintf(aux, "%s\n", slaves[i].name);
+					sprintf(aux, "%s.", slaves[i].name);
 				else
 					sprintf(aux, "%s, ", slaves[i].name);
 				strcat(buff, aux);
@@ -225,96 +359,10 @@ int exec_instr(char *instr)
 		aux = strtok(NULL, " ");
 		p = atoi(aux);
 	
-		connect_to_slave(p); // TODO: send feedback to configurator about connection
-
 		memset(buff, 0, M_INSTR_LEN);
-		// Check for duplicate name
-		if (curr_slaves >= 2)
-		{
-			found = -1;
-			for (i = 0 ; i < curr_slaves - 1; i++)
-				if (strcmp(slaves[curr_slaves - 1].name, slaves[i].name) == 0)
-				{
-					found = i;
-					break;
-				}
+		connect_to_slave(buff, p); 
 
-			if (found != -1)
-			{
-				// Tell the newly connected slave to change his name
-				to_send.id = CHANGE_NAME;
-
-				// Get the female variant of the name
-				if (strcmp(slaves[curr_slaves - 1].name, "Kyle") == 0)
-				{
-					memset(to_send.args[0], 0, M_ARG_CMD);
-					strcpy(to_send.args[0], "Kyla");
-				}
-				else if (strcmp(slaves[curr_slaves - 1].name, "Dan") == 0)
-				{
-					memset(to_send.args[0], 0, M_ARG_CMD);
-					strcpy(to_send.args[0], "Dana");
-				}
-				else if (strcmp(slaves[curr_slaves - 1].name, "Andrew") == 0)
-				{
-					memset(to_send.args[0], 0, M_ARG_CMD);
-					strcpy(to_send.args[0], "Andrea");
-				}
-				else if (strcmp(slaves[curr_slaves - 1].name, "Brian") == 0)
-				{
-					memset(to_send.args[0], 0, M_ARG_CMD);
-					strcpy(to_send.args[0], "Brianna");
-				}
-				else if (strcmp(slaves[curr_slaves - 1].name, "Felix") == 0)
-				{
-					memset(to_send.args[0], 0, M_ARG_CMD);
-					strcpy(to_send.args[0], "Felicia");
-				}
-
-				// Update name in personal storage
-				memset(slaves[curr_slaves - 1].name, 0, M_ARG_CMD);
-				strcpy(slaves[curr_slaves - 1].name, to_send.args[0]);
-
-				// Send the cmd to the slave
-				memcpy(slaves[curr_slaves - 1].shm_addr, &to_send, sizeof(to_send));
-				kill(slaves[curr_slaves - 1].pid, SIGUSR1);
-				
-				sprintf(buff, "M: Asked newly connected slave to change name.\n");
-
-				while (recv_data != 1);
-				recv_data = 0;
-				// TODO: check received message from slave. if ack or not
-
-				strcat(buff, "M: Name change sucessfull.\n");
-			}
-		}
-
-		memset(spare, 0, 50);
-		sprintf(spare, "M: Connection to slave %s established.\n", slaves[curr_slaves - 1].name);
-
-		// Present all parameters to the master
-		strcat(buff, spare);
-		if (slaves[curr_slaves - 1].p_set.nr == 0)
-			{
-				strcat(buff, "M: There are no parameters available for this slave.\n");
-			}
-			else
-			{
-				memset(spare, 0, 50);
-				sprintf(spare, "M: Available parameters for %s are: ", slaves[curr_slaves - 1].name);
-				strcat(buff, spare);
-				for (i = 0; i < slaves[curr_slaves - 1].p_set.nr; i++)
-				{
-					memset(spare, 0, 50);
-					if (i == slaves[curr_slaves - 1].p_set.nr - 1)
-						sprintf(spare, "%s\n", slaves[curr_slaves - 1].p_set.params[i].name);
-					else
-						sprintf(spare, "%s, ", slaves[curr_slaves - 1].p_set.params[i].name);
-					strcat(buff, spare);
-				}
-				write(STDOUT_FILENO, buff, M_INSTR_LEN);
-			}
-
+		// Send feedback to configurator about connection status
 		write(STDOUT_FILENO, buff, M_INSTR_LEN);
 		break;
 
@@ -328,7 +376,7 @@ int exec_instr(char *instr)
 		{
 			disconnect_slave(found);
 			memset(buff, 0, M_INSTR_LEN);
-			sprintf(buff, "M: Stopped communication with slave %s.\n", aux);
+			sprintf(buff, "M: Stopped communication with slave %s.", aux);
 			write(STDOUT_FILENO, buff, M_INSTR_LEN);
 		}
 		else
@@ -347,26 +395,11 @@ int exec_instr(char *instr)
 
 		if (found != -1)
 		{
-			if (slaves[found].p_set.nr == 0)
-			{
-				memset(buff, 0, M_INSTR_LEN);
-				sprintf(buff, "M: There are no parameters available for %s.", slaves[found].name);
-				write(STDOUT_FILENO, buff, M_INSTR_LEN);
-			}
-			else
-			{
-				memset(buff, 0, M_INSTR_LEN);
-				sprintf(buff, "M: Available parameters for %s are: ", slaves[found].name);
-				for (i = 0; i < slaves[found].p_set.nr; i++)
-				{
-					if (i == slaves[found].p_set.nr - 1)
-						sprintf(aux, "%s", slaves[found].p_set.params[i].name);
-					else
-						sprintf(aux, "%s, ", slaves[found].p_set.params[i].name);
-					strcat(buff, aux);
-				}
-				write(STDOUT_FILENO, buff, M_INSTR_LEN);
-			}
+			memset(buff, 0, M_INSTR_LEN);
+			print_parameters(buff, found);
+			write(STDOUT_FILENO, buff, M_INSTR_LEN);
+
+			// if (slaves[found].p_hell
 		}
 		else
 		{
@@ -405,6 +438,22 @@ int exec_instr(char *instr)
 void initialize(void)
 {
 	key_t shm_key;
+
+	sigemptyset(&connect_set);
+	sigaddset(&connect_set, SIGUSR2);
+
+	sigprocmask(SIG_BLOCK, &connect_set, NULL);
+
+	sigemptyset(&command_set);
+	sigaddset(&command_set, SIGUSR1);
+
+	sigprocmask(SIG_BLOCK, &command_set, NULL);
+
+	timeout_connection.tv_sec = 5;     /* Number of seconds to wait */
+	timeout_connection.tv_nsec = 0;  /* Number of nanoseconds to wait */
+
+	timeout_command.tv_sec = 1;     /* Number of seconds to wait */
+	timeout_command.tv_nsec = 0;  /* Number of nanoseconds to wait */
 
 	// Create key used for shared memory for flags
 	shm_key = ftok("key_shared_memory", getpid());

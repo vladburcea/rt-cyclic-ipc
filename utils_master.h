@@ -21,4 +21,7 @@ char *flags_addr;
 int flags[3 * M_SLAVES];
 struct sigaction new_action;
 
+sigset_t connect_set, command_set;
+struct timespec timeout_connection, timeout_command;
+
 #endif /* _UTILS_MASTER_H_ */

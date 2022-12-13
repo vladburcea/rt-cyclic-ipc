@@ -17,8 +17,6 @@ param_set_t p_set;
 int lifetime, new_cmd;
 connection_state_t cstate;
 
-
-
 void sig_handler(int signum, siginfo_t *info, void *context __attribute__((unused)))
 {
 	switch (signum)
@@ -136,8 +134,8 @@ void establish_conn(char args[][M_CMD_LEN])
 	// Set cycle time
 	cycle_time = atoi(args[0]);
 
-	// Add offset to the addres
-	flag_addr += atoi(args[1]);
+	// save the offset
+	flag_offset = atoi(args[1]);
 
 	// Load param into shared memory space
 	// Load all the parameters the slave has into structure
@@ -207,10 +205,7 @@ int exec_cmd(command_t cmd)
 	case CHANGE_NAME:
 		memset(name, 0, M_NAME_LEN);
 		strcpy(name, cmd.args[0]);
-		printf("Changed name\n");
 		send_ack();
-		printf("Sent ACK\n");
-
 		break;
 
 	default:
