@@ -268,6 +268,8 @@ instruction_t parse_input(char *instr, char *param)
 	return c;
 }
 
+struct pollfd *master_pfds;
+
 int exec_instr(instruction_t instr, char *param)
 {
 	int i;
@@ -312,9 +314,17 @@ int exec_instr(instruction_t instr, char *param)
 		sprintf(buff, "%d\n", LIST_CONN_SLAVES);
 		write(m_pipe[WRITE_END], buff, M_INSTR_LEN);
 
-		memset(buff, 0, M_INSTR_LEN);
-		read(c_pipe[READ_END], buff, M_INSTR_LEN);
-		printf("%s\n", buff);
+		poll(master_pfds, 1, -1);
+		if (master_pfds[0].revents & POLLIN)
+		{
+			memset(buff, 0, M_INSTR_LEN);
+			read(c_pipe[READ_END], buff, M_INSTR_LEN);
+			printf("%s\n", buff);
+		}
+
+		// memset(buff, 0, M_INSTR_LEN);
+		// read(c_pipe[READ_END], buff, M_INSTR_LEN);
+		// printf("%s\n", buff);
 		break;
 
 	case CONNECT_SLAVE:
@@ -424,13 +434,17 @@ int exec_instr(instruction_t instr, char *param)
 int main(int argc, char *argv[])
 {
 	int alive;
-	char instr[M_INSTR_LEN], param[M_INSTR_LEN];;
+	char instr[M_INSTR_LEN], param[M_INSTR_LEN], buff[M_INSTR_LEN];
 	instruction_t instr_id;
 
 	instr_id = UNDEFINED;
 	printf("Started configurator!\n");
 
 	initialize(argc, argv);
+
+	master_pfds = calloc(1, sizeof(struct pollfd));
+	master_pfds[0].fd = c_pipe[READ_END];
+	master_pfds[0].events = POLLIN;
 
 	alive = 1;
 	while (alive)
@@ -446,8 +460,16 @@ int main(int argc, char *argv[])
 		instr_id = parse_input(instr, param);
 
 		alive = exec_instr(instr_id, param);
+		// poll(&master_pfds, 1, 0);
+		// if (master_pfds.revents & POLLIN)
+		// {
+		// 	memset(buff, 0, M_INSTR_LEN);
+		// 	read(c_pipe[READ_END], buff, M_INSTR_LEN);
+		// 	printf("%s\n", buff);
+		// }
 	}
 
+	free(master_pfds);
 	finalize();
 
 	printf("Done Configurator\n");

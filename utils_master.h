@@ -2,6 +2,7 @@
 #define _UTILS_MASTER_H_
 
 #include "utils.h"
+#include <pthread.h>
 
 typedef struct utils_slave
 {

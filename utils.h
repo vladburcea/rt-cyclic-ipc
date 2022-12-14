@@ -18,6 +18,7 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <signal.h>
+#include <poll.h>
 #include <sys/time.h>
 
 #define M_SLAVES 10
