@@ -192,12 +192,14 @@ int exec_cmd(command_t cmd)
 
 	case INC_TIME:
 		cycle_time += atoi(cmd.args[0]);
+		printf("S: New cycle time is %d.\n", cycle_time);
 		send_ack();
 		break;
 
 	case DEC_TIME:
 		if (cycle_time - atoi(cmd.args[0]) > 0)
 			cycle_time -= atoi(cmd.args[0]);
+		printf("S: New cycle time is %d.\n", cycle_time);
 		// TODO: ce fac in caz contrar -> NACK
 		send_ack();
 		break;

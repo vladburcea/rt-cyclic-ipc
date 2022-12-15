@@ -20,6 +20,7 @@
 #include <signal.h>
 #include <poll.h>
 #include <sys/time.h>
+#include <ctype.h>
 
 #define M_SLAVES 10
 #define M_CMD_LEN 100

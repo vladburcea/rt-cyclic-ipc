@@ -286,54 +286,84 @@ void disconnect_slave(char *buff, char *name)
 	}
 }
 
+/// @brief change_cycle_time() increases or decreases the cycle time of a slave based on the second argument of the command
+/// @param param a pointer to a string with the name and value of the cycle time
+/// @param c the value can be either INC_TIME or DEC_TIME based on which functionality the function needs to implements
 void change_cycle_time(char *param, command_id_t c)
 {
 	int found;
 	command_t cmd;
-	char *name, *arg, buff[M_INSTR_LEN];
+	siginfo_t info;
+	char name[M_NAME_LEN], *arg, *endptr, buff[M_INSTR_LEN];
 
 	// Separate name from arg
-	name = strtok(param, " ");
+	strcpy(name, param);
+
+	// get the argument of the command
+	arg = strtok(NULL, " \n");
+
+	if (arg == NULL)
+	{
+		sprintf(buff, "M: No value inputed for cycle time!");
+		send_to_fd(buff, conf_pfds[WRITE_END]);
+		return;
+	}
 
 	// Find the index of the slave in question
 	found = search_name(name);
 
+	memset(buff, 0, M_INSTR_LEN);
 	if (found != -1)
 	{
-		// get the argument of the command
-		arg = strtok(NULL, " \n");
-
 		// Set the type of the command (increase or decrease) and copy it into shm
 		cmd.id = c;
 		strcpy(cmd.args[0], arg);
-		memcpy(slaves[found].shm_addr, &cmd, sizeof(cmd));
 
-		// Send signal to slave
-		kill(slaves[found].pid, SIGUSR1);
-
-		// Prepare response for configurator
-		memset(buff, 0, M_INSTR_LEN);
-		if (cmd.id == INC_TIME)
-			sprintf(buff, "M: Asked %s to increase cycle time by %d.\n",
-						slaves[found].name, atoi(cmd.args[0]));
+		strtol(arg, &endptr, 10);
+		if (arg == endptr || *endptr != '\0')
+		{
+			sprintf(buff, "M: Invalid input value for cycle time!");
+		}
 		else
-			sprintf(buff, "M: Asked %s to decrease cycle time by %d.\n",
-						slaves[found].name, atoi(cmd.args[0]));
+		{
+			memcpy(slaves[found].shm_addr, &cmd, sizeof(cmd));
 
-		while (recv_data != 1);
-		recv_data = 0;
-		// TODO: check received message from slave. if ack or not
+			// Send signal to slave
+			kill(slaves[found].pid, SIGUSR1);
 
-		if (cmd.id == DEC_TIME)
-			strcat(buff, "M: Increased cycle time successfully.\n");
-		else
-			strcat(buff, "M: Decreased cycle time successfully.\n");
+			// Prepare response for configurator
+			if (cmd.id == INC_TIME)
+				sprintf(buff, "M: Asked %s to increase cycle time by %d.\n",
+							slaves[found].name, atoi(cmd.args[0]));
+			else
+				sprintf(buff, "M: Asked %s to decrease cycle time by %d.\n",
+							slaves[found].name, atoi(cmd.args[0]));
+
+			// Wait for response from slave.
+			if(sigtimedwait(&command_set, &info, &timeout_command) == -1)
+			{
+				// TODO: do action 
+				if (cmd.id == INC_TIME)
+					strcat(buff, "M: Failed to increase cycle time."
+							"Slave didn't responde in designated time frame.\n");
+				else
+					strcat(buff, "M: Failed to decrease cycle time."
+							"Slave didn't responde in designated time frame.\n");
+			}
+			else
+			{
+				recv_data = 0;
+				if (cmd.id == INC_TIME)
+					strcat(buff, "M: Increased cycle time successfully.\n");
+				else
+					strcat(buff, "M: Decreased cycle time successfully.\n");
+				// TODO: check received message from slave. if ack or not
+			}
+		}
 	}
 	else
-	{
-		memset(buff, 0, M_INSTR_LEN);
 		sprintf(buff, "M: No slave with name %s is connected.", name);
-	}
+
 	send_to_fd(buff, conf_pfds[WRITE_END]);
 }
 
@@ -402,34 +432,26 @@ int exec_instr(char *instr)
 		// Find the index of the slave in question
 		found = search_name(aux);
 
+		memset(buff, 0, M_INSTR_LEN);
 		if (found != -1)
-		{
-			memset(buff, 0, M_INSTR_LEN);
 			print_parameters(buff, found);
-			send_to_fd(buff, conf_pfds[WRITE_END]);
-
-			// if (slaves[found].p_hell
-		}
 		else
-		{
-			memset(buff, 0, M_INSTR_LEN);
 			sprintf(buff, "M: No slave with name %s is connected.", aux);
-			send_to_fd(buff, conf_pfds[WRITE_END]);
-		}
+		send_to_fd(buff, conf_pfds[WRITE_END]);
 		break;
 
 	case INC_CYC_TIME:
 		// Separate arguments from instr_id
 		aux = strtok(NULL, " \n");
 
-		change_cycle_time(aux, INC_CYC_TIME);
+		change_cycle_time(aux, INC_TIME);
 		break;
 	
 	case DEC_CYC_TIME:
 		// Separate arguments from instr_id
 		aux = strtok(NULL, " \n");
 
-		change_cycle_time(aux, DEC_CYC_TIME);
+		change_cycle_time(aux, DEC_TIME);
 		break;
 
 	case LOGS:
