@@ -96,6 +96,9 @@ void create_master(void)
 			// Initialize the struct pollfd variable
 			master_pfds[0].fd = c_pipe[READ_END];
 			master_pfds[0].events = POLLIN;
+			
+			master_pfds[1].fd = m_pipe[WRITE_END];
+			master_pfds[1].events = POLLOUT;
 		}
 	}
 }
@@ -272,9 +275,80 @@ instruction_t parse_input(char *instr, char *param)
 	return c;
 }
 
+int send_to_master(char *buff)
+{
+	// Blocking write
+	int ret_poll;
+
+	ret_poll = poll(master_pfds + 1, 1, -1);
+	if (ret_poll > 0)
+	{
+		if (master_pfds[1].revents & POLLOUT)
+			write(m_pipe[WRITE_END], buff, M_INSTR_LEN);
+	}
+	else
+	{
+		/* the poll failed */
+		perror("poll failed");
+		return 0;
+	}
+
+	return 1;
+}
+
+int read_from_master(char *buff)
+{
+	int ret_poll;
+
+	// Blocking read
+	ret_poll = poll(master_pfds, 1, -1);
+
+	if (ret_poll > 0)
+	{
+		if (master_pfds[0].revents & POLLIN)
+			read(c_pipe[READ_END], buff, M_INSTR_LEN);
+	}
+	else
+	{
+		/* the poll failed */
+		perror("poll failed");
+		return 0;
+	}
+	return 1;
+}
+
+int send_instr(instruction_t instr, char *param)
+{
+	int err;
+	char buff[M_INSTR_LEN];
+
+	memset(buff, 0, M_INSTR_LEN);
+	if (param == NULL)
+		sprintf(buff, "%d\n", instr);
+	else
+		sprintf(buff, "%d %s\n", instr, param);
+
+	// Blocking write
+	err = send_to_master(buff);
+
+	if (!err)
+		return err;
+
+	// Blocking read
+	memset(buff, 0, M_INSTR_LEN);
+	err = read_from_master(buff);
+
+	if (!err)
+		return err;
+
+	printf("%s\n", buff);
+
+	return 1;
+}
+
 int exec_instr(instruction_t instr, char *param)
 {
-	int i;
+	int i, err;
 	char buff[M_INSTR_LEN];
 	pid_t p;
 
@@ -283,7 +357,7 @@ int exec_instr(instruction_t instr, char *param)
 	{
 		printf ("There's no master to send this command to! "
 			"First start a master process with 'start master'.\n");
-			return 1;
+		return 1;
 	}
 
 	switch (instr)
@@ -295,6 +369,7 @@ int exec_instr(instruction_t instr, char *param)
 	case LIST_ALL_SLAVES:
 		(n_slaves > 1) ? printf("There are %d available slaves:\n", n_slaves) : 
 							printf("There is only one slave:\n");
+
 		for (i = 0; i < n_slaves; i++)
 			printf("%d. PID: %d.\n", i + 1, slaves[i]);
 		break;
@@ -312,21 +387,7 @@ int exec_instr(instruction_t instr, char *param)
 		break;
 
 	case LIST_CONN_SLAVES:
-		memset(buff, 0, M_INSTR_LEN);
-		sprintf(buff, "%d\n", LIST_CONN_SLAVES);
-		write(m_pipe[WRITE_END], buff, M_INSTR_LEN);
-
-		poll(master_pfds, 1, -1);
-		if (master_pfds[0].revents & POLLIN)
-		{
-			memset(buff, 0, M_INSTR_LEN);
-			read(c_pipe[READ_END], buff, M_INSTR_LEN);
-			printf("%s\n", buff);
-		}
-
-		// memset(buff, 0, M_INSTR_LEN);
-		// read(c_pipe[READ_END], buff, M_INSTR_LEN);
-		// printf("%s\n", buff);
+		return send_instr(LIST_CONN_SLAVES, NULL);
 		break;
 
 	case CONNECT_SLAVE:
@@ -334,91 +395,40 @@ int exec_instr(instruction_t instr, char *param)
 		for(i = 0; i < n_slaves; i++)
 			if (slaves[i] == p)
 				break;
+
 		if (i == n_slaves)
 			printf("There's no slave with pid: %d. "
 				"You can see all available slaves using 'list all slaves'.\n", p);
 		else
-		{
-			memset(buff, 0, M_INSTR_LEN);
-			sprintf(buff,"%d %d\n", CONNECT_SLAVE, p);
-			write(m_pipe[WRITE_END], buff, M_INSTR_LEN);
-
-			memset(buff, 0, M_INSTR_LEN);
-			read(c_pipe[READ_END], buff, M_INSTR_LEN);
-			printf("%s\n", buff);
-		}
+			return send_instr(CONNECT_SLAVE, param);
 		break;
 
 	case DISCONNECT_SLAVE:
-		memset(buff, 0, M_INSTR_LEN);
-		sprintf(buff,"%d %s\n", DISCONNECT_SLAVE, param);
-		write(m_pipe[WRITE_END], buff, M_INSTR_LEN);
-
-		// wait for a response from master
-		memset(buff, 0, M_INSTR_LEN);
-		read(c_pipe[READ_END], buff, M_INSTR_LEN);
-		printf("%s\n", buff);
+		return send_instr(DISCONNECT_SLAVE, param);
 		break;
 
 	case ALL_PARAM_SLAVE:
-		memset(buff, 0, M_INSTR_LEN);
-		sprintf(buff,"%d %s\n", ALL_PARAM_SLAVE, param);
-		write(m_pipe[WRITE_END], buff, M_INSTR_LEN);
-
-		// wait for a response from master
-		memset(buff, 0, M_INSTR_LEN);
-		read(c_pipe[READ_END], buff, M_INSTR_LEN);
-		printf("%s\n", buff);
+		return send_instr(ALL_PARAM_SLAVE, param);
 		break;
 
 	case VALUE_PARAM_SLAVE:
-		memset(buff, 0, M_INSTR_LEN);
-		sprintf(buff,"%d %s\n", VALUE_PARAM_SLAVE, param);
-		write(m_pipe[WRITE_END], buff, M_INSTR_LEN);
-
-		memset(buff, 0, M_INSTR_LEN);
-		read(c_pipe[READ_END], buff, M_INSTR_LEN);
-		printf("%s\n", buff);
+		return send_instr(VALUE_PARAM_SLAVE, param);
 		break;
 	
 	case START_PARAM_SLAVE:
-		memset(buff, 0, M_INSTR_LEN);
-		sprintf(buff,"%d %s\n", VALUE_PARAM_SLAVE, param);
-		write(m_pipe[WRITE_END], buff, M_INSTR_LEN);
-
-		memset(buff, 0, M_INSTR_LEN);
-		read(c_pipe[READ_END], buff, M_INSTR_LEN);
-		printf("%s\n", buff);
+		return send_instr(START_PARAM_SLAVE, param);
 		break;
 
 	case STOP_PARAM_SLAVE:
-		memset(buff, 0, M_INSTR_LEN);
-		sprintf(buff,"%d %s\n", VALUE_PARAM_SLAVE, param);
-		write(m_pipe[WRITE_END], buff, M_INSTR_LEN);
-
-		memset(buff, 0, M_INSTR_LEN);
-		read(c_pipe[READ_END], buff, M_INSTR_LEN);
-		printf("%s\n", buff);
+		return send_instr(STOP_PARAM_SLAVE, param);
 		break;
 
 	case INC_CYC_TIME:
-		memset(buff, 0, M_INSTR_LEN);
-		sprintf(buff,"%d %s\n", VALUE_PARAM_SLAVE, param);
-		write(m_pipe[WRITE_END], buff, M_INSTR_LEN);
-
-		memset(buff, 0, M_INSTR_LEN);
-		read(c_pipe[READ_END], buff, M_INSTR_LEN);
-		printf("%s\n", buff);
+		return send_instr(INC_CYC_TIME, param);
 		break;
 
 	case DEC_CYC_TIME:
-		memset(buff, 0, M_INSTR_LEN);
-		sprintf(buff,"%d %s\n", VALUE_PARAM_SLAVE, param);
-		write(m_pipe[WRITE_END], buff, M_INSTR_LEN);
-
-		memset(buff, 0, M_INSTR_LEN);
-		read(c_pipe[READ_END], buff, M_INSTR_LEN);
-		printf("%s\n", buff);
+		return send_instr(DEC_CYC_TIME, param);
 		break;
 
 	case LOGS:
@@ -458,13 +468,6 @@ int main(int argc, char *argv[])
 		instr_id = parse_input(instr, param);
 
 		alive = exec_instr(instr_id, param);
-		// poll(&master_pfds, 1, 0);
-		// if (master_pfds.revents & POLLIN)
-		// {
-		// 	memset(buff, 0, M_INSTR_LEN);
-		// 	read(c_pipe[READ_END], buff, M_INSTR_LEN);
-		// 	printf("%s\n", buff);
-		// }
 	}
 
 	finalize();
