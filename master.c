@@ -134,7 +134,6 @@ void change_name(char *buff, char *new_name, int index)
 		strcat(buff, "M: Name change sucessfull.\n");
 		// TODO: check received message from slave. if ack or not
 	}
-	// while (recv_data != 1);
 }
 
 /// @brief connect_to_slave() connects to the slave with the pid specified in the second argument and outputs the status of 
@@ -329,14 +328,13 @@ void change_cycle_time(char *param, command_id_t c)
 			strcat(buff, "M: Increased cycle time successfully.\n");
 		else
 			strcat(buff, "M: Decreased cycle time successfully.\n");
-		write(STDOUT_FILENO, buff, M_INSTR_LEN);
 	}
 	else
 	{
 		memset(buff, 0, M_INSTR_LEN);
 		sprintf(buff, "M: No slave with name %s is connected.", name);
-		write(STDOUT_FILENO, buff, M_INSTR_LEN);
 	}
+	send_to_fd(buff, conf_pfds[WRITE_END]);
 }
 
 int exec_instr(char *instr)
@@ -352,10 +350,13 @@ int exec_instr(char *instr)
 
 	switch (instr_id)
 	{
+	case END_MASTER:
+		return 0;
+		break;
 	case LIST_CONN_SLAVES:
 		if (curr_slaves == 0)
 		{
-			write(STDOUT_FILENO, "M: No slaves connected.", M_INSTR_LEN);
+			send_to_fd("M: No slaves connected.", conf_pfds[WRITE_END]);
 		}
 		else
 		{
@@ -369,7 +370,7 @@ int exec_instr(char *instr)
 					sprintf(aux, "%s, ", slaves[i].name);
 				strcat(buff, aux);
 			}
-			write(STDOUT_FILENO, buff, M_INSTR_LEN);
+			send_to_fd(buff, conf_pfds[WRITE_END]);
 		}
 		break;
 
@@ -381,7 +382,7 @@ int exec_instr(char *instr)
 		connect_to_slave(buff, p); 
 
 		// Send feedback to configurator about connection status
-		write(STDOUT_FILENO, buff, M_INSTR_LEN);
+		send_to_fd(buff, conf_pfds[WRITE_END]);
 		break;
 
 	case DISCONNECT_SLAVE:
@@ -391,7 +392,7 @@ int exec_instr(char *instr)
 		disconnect_slave(buff, aux);
 
 		// Send feedback to configurator about connection status
-		write(STDOUT_FILENO, buff, M_INSTR_LEN);
+		send_to_fd(buff, conf_pfds[WRITE_END]);
 
 		break;
 
@@ -405,7 +406,7 @@ int exec_instr(char *instr)
 		{
 			memset(buff, 0, M_INSTR_LEN);
 			print_parameters(buff, found);
-			write(STDOUT_FILENO, buff, M_INSTR_LEN);
+			send_to_fd(buff, conf_pfds[WRITE_END]);
 
 			// if (slaves[found].p_hell
 		}
@@ -413,7 +414,7 @@ int exec_instr(char *instr)
 		{
 			memset(buff, 0, M_INSTR_LEN);
 			sprintf(buff, "M: No slave with name %s is connected.", aux);
-			write(STDOUT_FILENO, buff, M_INSTR_LEN);
+			send_to_fd(buff, conf_pfds[WRITE_END]);
 		}
 		break;
 
@@ -446,6 +447,7 @@ int exec_instr(char *instr)
 void initialize(void)
 {
 	key_t shm_key;
+	char buff[M_INSTR_LEN];
 
 	sigemptyset(&connect_set);
 	sigaddset(&connect_set, SIGUSR2);
@@ -482,8 +484,7 @@ void initialize(void)
 		exit(1);
 	}
 
-	// memset(flags, 0, sizeof(*flags) * M_SLAVES);
-	strcpy(flags_addr, "abcdefg\n");
+	memset(flags, 0, sizeof(*flags) * M_SLAVES);
 
 	// Overwrite signal handler for SIGUSR1 & SIGUSR2 
 	// Set the handler in the new_action struct
@@ -496,24 +497,64 @@ void initialize(void)
 	// Overwrite signal management for following signals: 
 	sigaction(SIGUSR1, &new_action, NULL);
 	sigaction(SIGUSR2, &new_action, NULL);
+	
+	// Initialize the struct pollfd variable
+	conf_pfds[READ_END].fd = STDIN_FILENO;
+	conf_pfds[READ_END].events = POLLIN | POLLHUP;
+	
+	conf_pfds[WRITE_END].fd = STDOUT_FILENO;
+	conf_pfds[WRITE_END].events = POLLOUT;
+
+	sprintf(buff, "Master with pid %d initialized.", getpid());
+	send_to_fd(buff, conf_pfds[WRITE_END]);
 }
 
 void finalize(void)
 {
+	char buff[M_INSTR_LEN], buff2[M_INSTR_LEN];
+	command_t cmd;
 	int i;
+
+	cmd.id = STOP_CONN;
+	memset(buff, 0, M_INSTR_LEN);
 	for (i = 0; i < curr_slaves; i++)
+	{
+		// Tell the slave to stop communications
+		memcpy(slaves[i].shm_addr, &cmd, sizeof(cmd));
+		kill(slaves[i].pid, SIGUSR1);
+
+		// Detach from slave's shm space
 		if (shmdt(slaves[i].shm_addr) == -1)
 		{
-			perror("shmdt shm slaves");
+			perror("shmdt flags");
 			exit(1);
 		}
 
-
+		memset(buff2, 0, M_INSTR_LEN);
+		if (i == curr_slaves - 1)
+			sprintf(buff2,
+				"M: Stopped communication with slave %s.",
+				slaves[i].name);
+		else
+			sprintf(buff2,
+					"M: Stopped communication with slave %s.\n",
+					slaves[i].name);
+		strcat(buff, buff2);
+	}
+	
 	if (shmctl(shmid_flags, IPC_RMID, 0) == -1)
 	{
 		perror("shmctl flags");
 		exit(1);
 	}
+
+	memset(buff2, 0, M_INSTR_LEN);
+	if (curr_slaves == 0)
+		sprintf(buff2,"M: Stopped master instance with pid %d gracefully.", getpid());
+	else
+		sprintf(buff2,"\nM: Stopped master instance with pid %d gracefully.", getpid());
+	strcat(buff, buff2);
+	send_to_fd(buff, conf_pfds[WRITE_END]);
 }
 
 int main(void) {
@@ -526,7 +567,8 @@ int main(void) {
 	while (alive)
 	{
 		memset(buffer, 0, M_INSTR_LEN);
-		if (read(STDIN_FILENO, buffer, M_INSTR_LEN) <= 0)
+		// read_from_fd(buffer, conf_pfds[READ_END]);
+		if (recv_from_fd(buffer, conf_pfds[READ_END]) <= 0)
 			break;
 		alive = exec_instr(buffer);
 	}

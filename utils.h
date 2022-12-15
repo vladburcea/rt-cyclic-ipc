@@ -53,6 +53,7 @@ typedef enum
 	DEC_CYC_TIME            = 13,
 	START_PARAM_SLAVE       = 14,
 	STOP_PARAM_SLAVE        = 15,
+	END_MASTER              = 16,
 } instruction_t;
 
 typedef enum {
@@ -101,6 +102,48 @@ typedef struct param_set
     parameter_t params[M_PARAM_SLAVE];
 } param_set_t;
 
+int send_to_fd(char *buff, struct pollfd pollfds)
+{
+	// Blocking write
+	int ret_poll;
 
+	ret_poll = poll(&pollfds, 1, -1);
+	if (ret_poll > 0)
+	{
+		if (pollfds.revents & POLLOUT)
+			write(pollfds.fd, buff, M_INSTR_LEN);
+	}
+	else
+	{
+		/* the poll failed */
+		perror("poll failed");
+		return 0;
+	}
+
+	return 1;
+}
+
+int recv_from_fd(char *buff, struct pollfd pollfds)
+{
+	int ret_poll;
+
+	// Blocking read
+	ret_poll = poll(&pollfds, 1, -1);
+
+	if (ret_poll > 0)
+	{
+		if (pollfds.revents & POLLIN)
+			read(pollfds.fd, buff, M_INSTR_LEN);
+		else if (pollfds.revents & POLLHUP)
+			return -1;
+	}
+	else
+	{
+		/* the poll failed */
+		perror("poll failed");
+		return 0;
+	}
+	return 1;
+}
 
 #endif /* UTILS_H */

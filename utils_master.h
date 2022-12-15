@@ -25,4 +25,6 @@ struct sigaction new_action;
 sigset_t connect_set, command_set;
 struct timespec timeout_connection, timeout_command;
 
+struct pollfd conf_pfds[2];
+
 #endif /* _UTILS_MASTER_H_ */

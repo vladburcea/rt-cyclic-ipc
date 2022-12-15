@@ -1,5 +1,34 @@
 #include "utils_configurator.h"
 
+int send_instr(instruction_t instr, char *param)
+{
+	int err;
+	char buff[M_INSTR_LEN];
+
+	memset(buff, 0, M_INSTR_LEN);
+	if (param == NULL)
+		sprintf(buff, "%d\n", instr);
+	else
+		sprintf(buff, "%d %s\n", instr, param);
+
+	// Blocking write
+	err = send_to_fd(buff, master_pfds[WRITE_END]);
+
+	if (!err)
+		return err;
+
+	// Blocking read
+	memset(buff, 0, M_INSTR_LEN);
+	err = recv_from_fd(buff, master_pfds[READ_END]);
+
+	if (!err)
+		return err;
+
+	printf("%s\n", buff);
+
+	return 1;
+}
+
 void create_slaves(int n)
 {
 	int i;
@@ -94,20 +123,28 @@ void create_master(void)
 			close(m_pipe[READ_END]);
 
 			// Initialize the struct pollfd variable
-			master_pfds[0].fd = c_pipe[READ_END];
-			master_pfds[0].events = POLLIN;
+			master_pfds[READ_END].fd = c_pipe[READ_END];
+			master_pfds[READ_END].events = POLLIN;
 			
-			master_pfds[1].fd = m_pipe[WRITE_END];
-			master_pfds[1].events = POLLOUT;
+			master_pfds[WRITE_END].fd = m_pipe[WRITE_END];
+			master_pfds[WRITE_END].events = POLLOUT;
 		}
 	}
 }
 
-void end_master(void)
+int end_master(void)
 {
+	int err;
+	char buff[M_INSTR_LEN];
+
 	if (master > 0)
 	{
 		printf("Stopping master with pid %d.\n", master);
+
+		err = send_instr(END_MASTER, NULL);
+
+		if (!err)
+			return err;
 
 		// Close remaining pipe ends
 		close(c_pipe[READ_END]);
@@ -121,6 +158,8 @@ void end_master(void)
 		printf ("There's no master to stop! "
 			"First start a master process with 'start master'.\n");
 	}
+
+	return 1;
 }
 
 void initialize(int argc, char *argv[])
@@ -275,77 +314,6 @@ instruction_t parse_input(char *instr, char *param)
 	return c;
 }
 
-int send_to_master(char *buff)
-{
-	// Blocking write
-	int ret_poll;
-
-	ret_poll = poll(master_pfds + 1, 1, -1);
-	if (ret_poll > 0)
-	{
-		if (master_pfds[1].revents & POLLOUT)
-			write(m_pipe[WRITE_END], buff, M_INSTR_LEN);
-	}
-	else
-	{
-		/* the poll failed */
-		perror("poll failed");
-		return 0;
-	}
-
-	return 1;
-}
-
-int read_from_master(char *buff)
-{
-	int ret_poll;
-
-	// Blocking read
-	ret_poll = poll(master_pfds, 1, -1);
-
-	if (ret_poll > 0)
-	{
-		if (master_pfds[0].revents & POLLIN)
-			read(c_pipe[READ_END], buff, M_INSTR_LEN);
-	}
-	else
-	{
-		/* the poll failed */
-		perror("poll failed");
-		return 0;
-	}
-	return 1;
-}
-
-int send_instr(instruction_t instr, char *param)
-{
-	int err;
-	char buff[M_INSTR_LEN];
-
-	memset(buff, 0, M_INSTR_LEN);
-	if (param == NULL)
-		sprintf(buff, "%d\n", instr);
-	else
-		sprintf(buff, "%d %s\n", instr, param);
-
-	// Blocking write
-	err = send_to_master(buff);
-
-	if (!err)
-		return err;
-
-	// Blocking read
-	memset(buff, 0, M_INSTR_LEN);
-	err = read_from_master(buff);
-
-	if (!err)
-		return err;
-
-	printf("%s\n", buff);
-
-	return 1;
-}
-
 int exec_instr(instruction_t instr, char *param)
 {
 	int i, err;
@@ -376,6 +344,13 @@ int exec_instr(instruction_t instr, char *param)
 
 	case START_MASTER:
 		create_master();
+		err = recv_from_fd(buff, master_pfds[READ_END]);
+
+		if (!err)
+			return err;
+
+		printf("%s\n", buff);
+
 		break;
 
 	case HELP:
@@ -446,15 +421,15 @@ int exec_instr(instruction_t instr, char *param)
 int main(int argc, char *argv[])
 {
 	int alive;
-	char instr[M_INSTR_LEN], param[M_INSTR_LEN], buff[M_INSTR_LEN];
+	char instr[M_INSTR_LEN], param[M_INSTR_LEN];
 	instruction_t instr_id;
 
-	instr_id = UNDEFINED;
 	printf("Started configurator!\n");
 
 	initialize(argc, argv);
 
 	alive = 1;
+	instr_id = UNDEFINED;
 	while (alive)
 	{
 		printf("> ");
