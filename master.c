@@ -238,35 +238,49 @@ void connect_to_slave(char *buff, pid_t pid)
 	}
 }
 
-void disconnect_slave(int idx)
+void disconnect_slave(char *buff, char *name)
 {
 	command_t cmd;
-	cmd.id = STOP_CONN;
+	int idx;
 
-	// Tell the slave to stop communications
-	memcpy(slaves[idx].shm_addr, &cmd, sizeof(cmd));
-	kill(slaves[idx].pid, SIGUSR1);
+	idx = search_name(name);
 
-	// Detach from slave's shm space
-	if (shmdt(slaves[idx].shm_addr) == -1)
+	if (idx != -1)
 	{
-		perror("shmdt flags");
-		exit(1);
-	}
+		cmd.id = STOP_CONN;
 
-	// Erase the slave from memory
-	if (idx == curr_slaves - 1)
-	{
-		flags[slaves[idx].flag_offset] = 0;
-		memset(&(slaves[idx]), 0, sizeof(*slaves));
+		// Tell the slave to stop communications
+		memcpy(slaves[idx].shm_addr, &cmd, sizeof(cmd));
+		kill(slaves[idx].pid, SIGUSR1);
+
+		// Detach from slave's shm space
+		if (shmdt(slaves[idx].shm_addr) == -1)
+		{
+			perror("shmdt flags");
+			exit(1);
+		}
+
+		// Erase the slave from memory
+		if (idx == curr_slaves - 1)
+		{
+			flags[slaves[idx].flag_offset] = 0;
+			memset(&(slaves[idx]), 0, sizeof(*slaves));
+		}
+		else
+		{
+			flags[slaves[idx].flag_offset] = 0;
+			memcpy(&(slaves[idx]), &(slaves[curr_slaves - 1]), sizeof(*slaves));
+			memset(&(slaves[curr_slaves - 1]), 0, sizeof(*slaves));
+		}
+
+		sprintf(buff, "M: Stopped communication with slave %s.", name);
+
+		curr_slaves--;
 	}
 	else
 	{
-		flags[slaves[idx].flag_offset] = 0;
-		memcpy(&(slaves[idx]), &(slaves[curr_slaves - 1]), sizeof(*slaves));
-		memset(&(slaves[curr_slaves - 1]), 0, sizeof(*slaves));
+		sprintf(buff, "M: No slave with name %s is connected.", name);
 	}
-	curr_slaves--;
 }
 
 void change_cycle_time(char *param, command_id_t c)
@@ -369,22 +383,12 @@ int exec_instr(char *instr)
 	case DISCONNECT_SLAVE:
 		aux = strtok(NULL, " \n");
 
-		// Find the index of the slave in question
-		found = search_name(aux);
+		memset(buff, 0, M_INSTR_LEN);
+		disconnect_slave(buff, aux);
 
-		if (found != -1)
-		{
-			disconnect_slave(found);
-			memset(buff, 0, M_INSTR_LEN);
-			sprintf(buff, "M: Stopped communication with slave %s.", aux);
-			write(STDOUT_FILENO, buff, M_INSTR_LEN);
-		}
-		else
-		{
-			memset(buff, 0, M_INSTR_LEN);
-			sprintf(buff, "M: No slave with name %s is connected.", aux);
-			write(STDOUT_FILENO, buff, M_INSTR_LEN);
-		}
+		// Send feedback to configurator about connection status
+		write(STDOUT_FILENO, buff, M_INSTR_LEN);
+
 		break;
 
 	case ALL_PARAM_SLAVE:
@@ -499,6 +503,7 @@ void finalize(void)
 			perror("shmdt shm slaves");
 			exit(1);
 		}
+
 
 	if (shmctl(shmid_flags, IPC_RMID, 0) == -1)
 	{

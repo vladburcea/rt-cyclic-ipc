@@ -24,4 +24,6 @@ pid_t *slaves;
 pid_t master;
 int m_pipe[2], c_pipe[2];
 
+struct pollfd master_pfds[1];
+
 #endif /* UTIL_CONFIG_H */

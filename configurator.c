@@ -92,6 +92,10 @@ void create_master(void)
 			// Close the ends of the pipe that don't iterest me
 			close(c_pipe[WRITE_END]);
 			close(m_pipe[READ_END]);
+
+			// Initialize the struct pollfd variable
+			master_pfds[0].fd = c_pipe[READ_END];
+			master_pfds[0].events = POLLIN;
 		}
 	}
 }
@@ -268,8 +272,6 @@ instruction_t parse_input(char *instr, char *param)
 	return c;
 }
 
-struct pollfd *master_pfds;
-
 int exec_instr(instruction_t instr, char *param)
 {
 	int i;
@@ -442,10 +444,6 @@ int main(int argc, char *argv[])
 
 	initialize(argc, argv);
 
-	master_pfds = calloc(1, sizeof(struct pollfd));
-	master_pfds[0].fd = c_pipe[READ_END];
-	master_pfds[0].events = POLLIN;
-
 	alive = 1;
 	while (alive)
 	{
@@ -469,7 +467,6 @@ int main(int argc, char *argv[])
 		// }
 	}
 
-	free(master_pfds);
 	finalize();
 
 	printf("Done Configurator\n");
