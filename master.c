@@ -238,6 +238,10 @@ void connect_to_slave(char *buff, pid_t pid)
 	}
 }
 
+/// @brief disconnect_slave() disconnects from the slave specified in the second argument and outputs the status of 
+/// the command into the first argument
+/// @param buff (Output) pointer to a string where information regarding the status of the command will be outputed
+/// @param name (Input) name of a connected slave
 void disconnect_slave(char *buff, char *name)
 {
 	command_t cmd;
